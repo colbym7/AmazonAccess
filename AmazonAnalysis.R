@@ -71,3 +71,46 @@ kaggle_submission1 <- data.frame(
 vroom_write(x=kaggle_submission1, 
             file="C:\\Users\\cjmsp\\Desktop\\Stat348\\AmazonAccess\\AmazonAccess\\Preds\\logreg_preds.csv", 
             delim=",")
+
+
+### Penalized Regression ###
+penalty_recipe <- recipe(ACTION ~ ., data = train) %>%
+  step_mutate_at(all_numeric_predictors(), fn = factor) %>%
+  step_other(all_nominal_predictors(), threshold = .001) %>%
+  step_lencode_mixed(all_nominal_predictors(), outcome = vars(ACTION)) %>%
+  step_normalize(all_numeric_predictors())
+
+
+pen_mod <- logistic_reg(mixture=tune(), penalty = tune()) %>%
+  set_engine('glmnet')
+
+pen_workflow <- workflow() %>%
+  add_recipe(penalty_recipe) %>%
+  add_model(pen_mod)
+
+tuning_grid <- grid_regular(penalty(),
+                            mixture(),
+                            levels = 4)
+
+folds <- vfold_cv(train, v = 5, repeats = 1)
+CV_results <- pen_workflow %>%
+  tune_grid(resamples = folds,
+            grid=tuning_grid,
+            metrics = metric_set(roc_auc))
+bestTune <- CV_results %>%
+  select_best(metric = 'roc_auc')
+
+final_wf <- pen_workflow %>%
+  finalize_workflow(bestTune) %>%
+  fit(data=train)
+
+pen_preds <- final_wf %>%
+  predict(new_data=test, type='prob')
+
+kaggle_submission2 <- data.frame(
+  id = test$id,
+  Action = pen_preds$.pred_1
+)
+vroom_write(x=kaggle_submission2, 
+            file="C:\\Users\\cjmsp\\Desktop\\Stat348\\AmazonAccess\\AmazonAccess\\Preds\\pen_preds.csv", 
+            delim=",")
